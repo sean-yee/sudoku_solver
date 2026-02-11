@@ -48,7 +48,27 @@ class BTSolver:
                 The bool is true if assignment is consistent, false otherwise.
     """
     def forwardChecking ( self ):
-        return ({},False)
+        assignedVars = []
+        modifiedVars = {}
+
+        # find all assigned variables
+        for c in self.network.constraints:
+            for v in c.vars:
+                if v.isAssigned():
+                    assignedVars.append(v)
+
+        # for each assigned var, remove assigned value from its neighbors
+        for av in assignedVars:
+            for neighbor in self.network.getNeighborsOfVariable(av):
+                if neighbor.isChangeable() and not neighbor.isAssigned() and neighbor.getDomain().contains(av.getAssignment()):
+                    self.trail.push(neighbor)
+                    neighbor.removeValueFromDomain(av.getAssignment())
+                    modifiedVars[neighbor] = neighbor.getDomain()
+                    # end if var has empty domain
+                    if neighbor.domain.size() == 0:
+                        return (modifiedVars, False)
+
+        return (modifiedVars, True)
 
     # =================================================================
 	# Arc Consistency
