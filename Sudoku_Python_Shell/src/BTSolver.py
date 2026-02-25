@@ -178,7 +178,25 @@ class BTSolver:
                 The LCV is first and the MCV is last
     """
     def getValuesLCVOrder ( self, v ):
-        return None
+        value_constraints = []
+
+        # for each value in domain, count how many neighbors would be constrained
+        for value in v.domain.values:
+            count = 0
+
+            for neighbor in self.network.getNeighborsOfVariable(v):
+                if neighbor.isChangeable() and not neighbor.isAssigned():
+                    if neighbor.getDomain().contains(value):
+                        count += 1
+
+            value_constraints.append((value, count))
+
+        # sort by count
+        value_constraints.sort(key=lambda x: x[1])
+        result = []
+        for value, count in value_constraints:
+            result.append(value)
+        return result
 
     """
          Optional TODO: Implement your own advanced Value Heuristic
