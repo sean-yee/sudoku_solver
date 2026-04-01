@@ -107,7 +107,36 @@ class BTSolver:
                 The bool is true if assignment is consistent, false otherwise.
     """
     def norvigCheck ( self ):
-        return ({}, False)
+        assigned = {}
+        changed = True
+
+        while changed:
+            changed = False
+
+            (modified, consistent) = self.forwardChecking()
+
+            if not consistent:
+                return (assigned, False)
+
+            for c in self.network.constraints:
+                for d in range(1, 10):
+                    candidate = []
+
+                    for v in c.vars:
+                        if v.getDomain().contains(d):
+                            candidate.append(v)
+
+                    if len(candidate) == 1:
+                        v = candidate[0]
+
+                        if not v.isAssigned():
+                            self.trail.push(v)
+                            v.assignValue(d)
+
+                            assigned[v] = d
+                            changed = True
+
+        return (assigned, True)
 
     """
          Optional TODO: Implement your own advanced Constraint Propagation
@@ -116,7 +145,44 @@ class BTSolver:
          your program into a tournament.
      """
     def getTournCC ( self ):
-        return False
+
+        # A3 Algorithm (Google Search)
+        (modified, consistent) = self.forwardChecking()
+        if not consistent:
+            return False
+
+        (modified, consistent) = self.norvigCheck()
+        if not consistent:
+            return False
+
+        self.arcConsistency()
+
+        # Naked Twin Constraint (Google Search)
+        for c in self.network.constraints:
+            twins = []
+
+            for v in c.vars:
+                if v.getDomain().size() == 2 and not v.isAssigned():
+                    twins.append(v)
+
+            for i in range(len(twins)):
+                for j in range(i+1, len(twins)):
+
+                    v1 = twins[i]
+                    v2 = twins[j]
+
+                    if v1.getDomain().values == v2.getDomain().values:
+                        value = v1.getDomain().values
+
+                        # eliminate other variables
+                        for v in c.vars:
+                            if v != v1 and v != v2 and not v.isAssigned():
+                                for val in value:
+                                    if v.getDomain().contains(val):
+                                        self.trail.push(v)
+                                        v.removeValueFromDomain(val)
+
+        return True
 
     # ==================================================================
     # Variable Selectors
@@ -137,7 +203,18 @@ class BTSolver:
         Return: The unassigned variable with the smallest domain
     """
     def getMRV ( self ):
-        return None
+        best_value = None
+        min_remaining = float('inf')
+
+        # iterate through all variables in the network and compare
+        for var in self.network.variables:
+            if not var.isAssigned():
+                num_value = var.getDomain().size()
+                if num_value < min_remaining:
+                    min_remaining = num_value
+                    best_value = var
+
+        return best_value
 
     """
         Part 2 TODO: Implement the Minimum Remaining Value Heuristic
@@ -148,7 +225,46 @@ class BTSolver:
                 If there is only one variable, return the list of size 1 containing that variable.
     """
     def MRVwithTieBreaker ( self ):
-        return None
+        unassigned_vars = []
+
+        # get list of unassigned vars
+        for v in self.network.variables:
+            if not v.isAssigned():
+                unassigned_vars.append(v)
+
+        if len(unassigned_vars) == 0:
+            return [None]
+
+        min_domain = min(v.domain.size() for v in unassigned_vars)
+
+        # find all vars with min domain
+        mrv_vars = []
+        for v in unassigned_vars:
+            if v.domain.size() == min_domain:
+                mrv_vars.append(v)
+
+        if len(mrv_vars) == 1:
+            return mrv_vars
+
+        # find number of constraints each var has on other variables
+        var_degrees = []
+        for v in mrv_vars:
+            unassigned_neighbors = 0
+            for neighbor in self.network.getNeighborsOfVariable(v):
+                if not neighbor.isAssigned():
+                    unassigned_neighbors += 1
+            var_degrees.append((v, unassigned_neighbors))
+
+        max_degree = max(degree for v, degree in var_degrees)
+
+        # find all vars that match max number of constraints
+        result = []
+        for v, degree in var_degrees:
+            if degree == max_degree:
+                result.append(v)
+
+        return result
+
 
     """
          Optional TODO: Implement your own advanced Variable Heuristic
@@ -157,7 +273,36 @@ class BTSolver:
          your program into a tournament.
      """
     def getTournVar ( self ):
-        return None
+        unassigned_vars = []
+
+        for v in self.network.variables:
+            if not v.isAssigned():
+                unassigned_vars.append(v)
+
+        if len(unassigned_vars) == 0:
+            return None
+
+        best_var = None
+        best_score = float('-inf')
+
+        for v in unassigned_vars:
+            domain_score = 1.0 / v.domain.size() if v.domain.size() > 0 else 0
+            degree = 0
+            neighbor_constraint_sum = 0
+
+            for neighbor in self.network.getNeighborsOfVariable(v):
+                if not neighbor.isAssigned():
+                    degree += 1
+                    neighbor_constraint_sum += 1.0 / neighbor.domain.size() if neighbor.domain.size() > 0 else 0
+
+            score = (3.0 * domain_score) + (1.5 * degree) + (1.0 * neighbor_constraint_sum)
+
+            if score > best_score:
+                best_score = score
+                best_var = v
+
+        return best_var
+        
 
     # ==================================================================
     # Value Selectors
@@ -205,7 +350,38 @@ class BTSolver:
          your program into a tournament.
      """
     def getTournVal ( self, v ):
-        return None
+        if not v.domain.values:
+            return []
+
+        value_scores = []
+
+        for value in v.domain.values:
+            impact_score = 0
+
+            for neighbor in self.network.getNeighborsOfVariable(v):
+                if neighbor.isChangeable() and not neighbor.isAssigned():
+                    if neighbor.getDomain().contains(value):
+                        base_impact = 1
+
+                        neighbor_size = neighbor.domain.size()
+                        if neighbor_size == 2:
+                            criticality_weight = 10
+                        elif neighbor_size == 3:
+                            criticality_weight = 5
+                        elif neighbor_size <= 5:
+                            criticality_weight = 2
+                        else:
+                            criticality_weight = 1
+
+                        impact_score += base_impact * criticality_weight
+
+            value_scores.append((value, impact_score))
+
+        value_scores.sort(key=lambda x: x[1])
+        result = []
+        for value, impact_score in value_scores:
+            result.append(value)
+        return result
 
     # ==================================================================
     # Engine Functions
